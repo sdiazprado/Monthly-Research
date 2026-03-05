@@ -192,6 +192,7 @@ def load_data_bde(start_date_str, end_date_str, extract_author=True):
     return df
 
 @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def load_data_generic(urls, base_domain, org_name, extract_author=True):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     rows = []
@@ -208,9 +209,16 @@ def load_data_generic(urls, base_domain, org_name, extract_author=True):
                     
                 title = re.sub(r'\s+', ' ', a_tag.get_text(separator=" ", strip=True))
                 if len(title) < 15 or "read more" in title.lower() or "download" in title.lower(): continue
-                    
+                
+                # Búsqueda ampliada: Revisamos el padre, y si no hay suerte, revisamos al abuelo (necesario para la FED y el FMI)
                 parent_text = a_tag.parent.get_text(separator=' | ', strip=True) if a_tag.parent else ""
-                date_match = re.search(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})', parent_text, re.IGNORECASE)
+                grandparent_text = a_tag.parent.parent.get_text(separator=' | ', strip=True) if a_tag.parent and a_tag.parent.parent else ""
+                
+                # Unimos ambos textos para que el buscador tenga todo el contexto de la "fila"
+                full_context_text = parent_text + " | " + grandparent_text
+                
+                # Regex corregida: Acepta \d{1,2} para meses y días (Ej. 2/26/2026 o 02/26/2026)
+                date_match = re.search(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4})', full_context_text, re.IGNORECASE)
                 
                 if date_match:
                     try:
@@ -218,10 +226,12 @@ def load_data_generic(urls, base_domain, org_name, extract_author=True):
                         if parsed_date.year > 2000:
                             autor = ""
                             if extract_author:
-                                for p in parent_text.split('|'):
+                                # Buscamos en el contexto completo para aislar al autor
+                                for p in full_context_text.split('|'):
                                     p = p.strip()
-                                    if p != title and date_match.group(1) not in p and 4 < len(p) < 35 and not any(c.isdigit() for c in p):
-                                        autor = p.replace(',', '').replace(':', '').strip()
+                                    if p != title and date_match.group(1) not in p and 4 < len(p) < 45 and not any(c.isdigit() for c in p):
+                                        # Limpiamos prefijos extraños
+                                        autor = p.replace(',', '').replace(':', '').replace('By ', '').replace('Watch Live', '').strip()
                                         break
                             
                             final_title = f"{autor}: {title}" if autor and extract_author and ":" not in title else title
@@ -563,4 +573,5 @@ elif modo_app == "Explorador de Categorías":
 
     else:
         st.info(f"El extractor de **{tipo_doc}** para **{organismo_seleccionado}** está en construcción.")
+
 
