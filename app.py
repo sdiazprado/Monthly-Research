@@ -11,7 +11,26 @@ from docx import Document
 # CONFIGURACIÓN INICIAL Y ESTILOS
 # ==========================================
 st.set_page_config(page_title="Boletín Mensual - Banxico", layout="wide")
+# ==========================================
+# CONFIGURACIÓN INICIAL Y ESTILOS
+# ==========================================
+st.set_page_config(page_title="Boletín Mensual - Banxico", layout="wide")
 
+# Inyección de CSS para cambiar el color de los botones al Azul Banxico
+st.markdown("""
+    <style>
+    /* Estilo para los botones principales y de descarga */
+    div.stButton > button, div.stDownloadButton > button {
+        background-color: #00205B !important;
+        color: white !important;
+        border: none !important;
+    }
+    div.stButton > button:hover, div.stDownloadButton > button:hover {
+        background-color: #00153D !important;
+        color: white !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 # ==========================================
 # FUNCIONES AUXILIARES (BACKEND)
 # ==========================================
@@ -240,6 +259,7 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "BIS":
 else:
     st.info(f"El extractor de **{tipo_doc}** para **{organismo_seleccionado}** está en construcción.")
     st.write("Próximamente podrás extraer estos documentos de forma automatizada.")
+
 
 
 
