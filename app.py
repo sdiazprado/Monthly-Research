@@ -11,6 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from bs4 import BeautifulSoup
 import calendar
 import time
+import re
 
 # ==========================================
 # CONFIGURACIÓN INICIAL Y ESTILOS
@@ -73,7 +74,6 @@ def load_data_bis():
 
 @st.cache_data(show_spinner="Navegando y extrayendo discursos del BBk (Alemania)...")
 def load_data_bbk(start_date_str, end_date_str):
-    # El BBk espera las fechas en formato DD.MM.YYYY
     base_url = "https://www.bundesbank.de/action/en/730564/bbksearch"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
@@ -92,20 +92,27 @@ def load_data_bbk(start_date_str, end_date_str):
             response = requests.get(base_url, headers=headers, params=params)
             response.raise_for_status()
         except:
-            break # Si la página bloquea o falla, salimos del bucle
+            break 
             
         soup = BeautifulSoup(response.text, 'html.parser')
         items = soup.find_all('li', class_='resultlist__item')
         
         if not items:
-            break # Ya no hay resultados
+            break 
             
         for item in items:
             # 1. Extraer Fecha
             fecha_tag = item.find('span', class_='metadata__date')
             fecha_str = fecha_tag.text.strip() if fecha_tag else ""
             
-            # 2. Extraer Enlace y Título
+            # 2. Extraer Autor (Y formatear con espacios si viene como "JoachimNagel")
+            author_tag = item.find('span', class_='metadata__authors')
+            author_str = author_tag.text.strip() if author_tag else ""
+            if author_str:
+                # Agrega un espacio entre minúscula y mayúscula
+                author_str = re.sub(r'([a-z])([A-Z])', r'\1 \2', author_str)
+            
+            # 3. Extraer Enlace y Título
             data_div = item.find('div', class_='teasable__data')
             link = ""
             titulo = ""
@@ -121,6 +128,10 @@ def load_data_bbk(start_date_str, end_date_str):
                     if span_tag:
                         titulo = span_tag.text.strip()
             
+            # Unir Autor y Título al estilo BPI
+            if author_str and titulo:
+                titulo = f"{author_str}: {titulo}"
+            
             if fecha_str and titulo:
                 rows.append({
                     "Date": fecha_str,
@@ -128,16 +139,14 @@ def load_data_bbk(start_date_str, end_date_str):
                     "Link": link
                 })
                 
-        # Si la página trajo menos de 10 resultados, es la última página
         if len(items) < 10:
             break
             
         page += 1
-        time.sleep(0.5) # Pausa amigable para no saturar al servidor alemán
+        time.sleep(0.5) 
         
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Convertir a datetime asumiendo el formato alemán DD.MM.YYYY
         df["Date"] = pd.to_datetime(df["Date"], format='%d.%m.%Y', errors='coerce')
         df = df.sort_values("Date", ascending=False)
         
@@ -153,17 +162,14 @@ def add_hyperlink(paragraph, text, url):
     new_run = docx.oxml.shared.OxmlElement('w:r')
     rPr = docx.oxml.shared.OxmlElement('w:rPr')
 
-    # Color Azul
     c = docx.oxml.shared.OxmlElement('w:color')
     c.set(docx.oxml.shared.qn('w:val'), '0000EE')
     rPr.append(c)
 
-    # Subrayado
     u = docx.oxml.shared.OxmlElement('w:u')
     u.set(docx.oxml.shared.qn('w:val'), 'single')
     rPr.append(u)
 
-    # Formato: Tamaño 12 (24 medios puntos)
     sz = docx.oxml.shared.OxmlElement('w:sz')
     sz.set(docx.oxml.shared.qn('w:val'), '24')
     rPr.append(sz)
@@ -172,7 +178,6 @@ def add_hyperlink(paragraph, text, url):
     szCs.set(docx.oxml.shared.qn('w:val'), '24')
     rPr.append(szCs)
 
-    # Formato: Fuente Calibri
     rFonts = docx.oxml.shared.OxmlElement('w:rFonts')
     rFonts.set(docx.oxml.shared.qn('w:ascii'), 'Calibri')
     rFonts.set(docx.oxml.shared.qn('w:hAnsi'), 'Calibri')
@@ -190,11 +195,9 @@ def add_hyperlink(paragraph, text, url):
 def generate_word(dataframe, title="Discursos", subtitle=""):
     doc = Document()
     
-    # Título principal centrado
     heading = doc.add_heading(title, 0)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Subtítulo centrado (Rango de fechas)
     if subtitle:
         p_sub = doc.add_paragraph()
         p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -204,11 +207,9 @@ def generate_word(dataframe, title="Discursos", subtitle=""):
 
     doc.add_paragraph()
 
-    # Determinar las columnas dinámicamente (Omitimos el Link que va oculto)
     display_cols = [c for c in dataframe.columns if c != 'Link']
     table = doc.add_table(rows=1, cols=len(display_cols))
     
-    # Encabezados con formato Calibri 12 Negrita
     hdr_cells = table.rows[0].cells
     for idx, header_text in enumerate(display_cols):
         p = hdr_cells[idx].paragraphs[0]
@@ -217,30 +218,25 @@ def generate_word(dataframe, title="Discursos", subtitle=""):
         run.font.size = Pt(12)
         run.bold = True 
 
-    # Llenado de datos
     for index, row in dataframe.iterrows():
         row_cells = table.add_row().cells
         
         date_str = str(row['Date'])[:10]
         
-        # Celda 1: Fecha 
         p_date = row_cells[0].paragraphs[0]
         run_date = p_date.add_run(date_str)
         run_date.font.name = 'Calibri'
         run_date.font.size = Pt(12)
         
-        # Si la tabla combinada tiene la columna 'Organismo', la colocamos en medio
         if 'Organismo' in display_cols:
             p_org = row_cells[1].paragraphs[0]
             run_org = p_org.add_run(str(row['Organismo']))
             run_org.font.name = 'Calibri'
             run_org.font.size = Pt(12)
             
-            # Celda 3: Título con Link
             p_title = row_cells[2].paragraphs[0]
             add_hyperlink(p_title, str(row['Title']), str(row['Link']))
         else:
-            # Si es la vista normal (sin organismo), el título va en la celda 2
             p_title = row_cells[1].paragraphs[0]
             add_hyperlink(p_title, str(row['Title']), str(row['Link']))
 
@@ -253,7 +249,6 @@ def generate_word(dataframe, title="Discursos", subtitle=""):
 # INTERFAZ DE USUARIO (SIDEBAR Y NAVEGACIÓN)
 # ==========================================
 
-# 1. Logo institucional en la barra lateral
 try:
     st.sidebar.image("logo_banxico.png", use_column_width=True)
 except:
@@ -262,13 +257,11 @@ except:
 st.sidebar.markdown("---")
 st.sidebar.header("Menú de Navegación")
 
-# 2. Selector de Tipo de Documento
 tipo_doc = st.sidebar.selectbox(
     "Selecciona el Tipo de Documento",
     ["Reportes", "Publicaciones Institucionales", "Investigación", "Discursos"]
 )
 
-# 3. Selector de Organismo
 if tipo_doc == "Discursos":
     organismos = [
         "Todos",
@@ -304,7 +297,7 @@ st.markdown("---")
 # MÓDULO: DISCURSOS -> TODOS
 if tipo_doc == "Discursos" and organismo_seleccionado == "Todos":
     
-    st.subheader("1. Selecciona el Mes y Año para reporte consolidado")
+    st.subheader("1. Selecciona el Mes y Año")
 
     anios_str = ["2026", "2025", "2024", "2023", "2022", "2021", "2020"]
     meses_dict = {
@@ -319,7 +312,7 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "Todos":
     with col2:
         anios_seleccionados = st.multiselect("Año(s)", options=anios_str, default=["2026"])
 
-    buscar = st.button("🔍 Extraer y Consolidar Discursos", type="primary")
+    buscar = st.button("🔍 Buscar", type="primary")
 
     if buscar or "todos_df_filtrado" in st.session_state:
         if not meses_seleccionados or not anios_seleccionados:
@@ -367,7 +360,7 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "Todos":
             st.session_state["todos_df_filtrado"] = combined_df
 
             if len(combined_df) > 0:
-                st.subheader("2. Resultados consolidados")
+                st.subheader("2. Resultados de la búsqueda")
                 
                 col_mensaje, col_boton = st.columns([3, 1])
                 with col_mensaje:
@@ -377,23 +370,22 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "Todos":
                 
                 with col_boton:
                     subtitulo_fechas = f"{str_meses} {str_anios}"
-                    word_file = generate_word(combined_df, title="Boletín Consolidado de Discursos", subtitle=subtitulo_fechas)
+                    word_file = generate_word(combined_df, title="Discursos Centrales", subtitle=subtitulo_fechas)
                     st.download_button(
-                        label="📄 Descargar Consolidado en Word",
+                        label="📄 Descargar en Word",
                         data=word_file,
                         file_name=f"discursos_consolidados_{'_'.join(meses_seleccionados)}_{'_'.join(anios_seleccionados)}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True
                     )
                 
-                # Mostrar en pantalla
                 display_df = combined_df.copy()
                 display_df["Date"] = display_df["Date"].dt.strftime('%Y-%m-%d')
                 display_df["Title"] = display_df.apply(lambda x: f"[{x['Title']}]({x['Link']})", axis=1)
                 
                 st.markdown(display_df[["Date", "Organismo", "Title"]].to_markdown(index=False), unsafe_allow_html=True)
             else:
-                st.warning("No se encontraron discursos de ningún organismo para las fechas seleccionadas.")
+                st.warning("No se encontraron discursos para las fechas seleccionadas.")
 
 # MÓDULO: DISCURSOS -> BPI
 elif tipo_doc == "Discursos" and organismo_seleccionado == "BPI":
@@ -483,7 +475,7 @@ elif tipo_doc == "Discursos" and organismo_seleccionado == "BBk (Alemania)":
     with col2:
         anios_seleccionados = st.multiselect("Año(s)", options=anios_str, default=["2026"])
 
-    buscar = st.button("🔍 Buscar Discursos del BBk", type="primary")
+    buscar = st.button("🔍 Buscar", type="primary")
 
     if buscar or "bbk_df_filtrado" in st.session_state:
         if not meses_seleccionados or not anios_seleccionados:
@@ -536,6 +528,8 @@ elif tipo_doc == "Discursos" and organismo_seleccionado == "BBk (Alemania)":
                 st.markdown(filtered_df_display[["Date", "Title"]].to_markdown(index=False), unsafe_allow_html=True)
             else:
                 st.warning("No hay discursos del BBk para las fechas seleccionadas.")
+    else:
+        st.info("👆 Selecciona el mes y año arriba y presiona **'Buscar'**.")
 
 # MÓDULOS EN CONSTRUCCIÓN (Placeholder para el resto del menú)
 else:
