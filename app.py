@@ -232,9 +232,7 @@ def load_data_fed(anios_num, extract_author=True):
                                     if p_clean and p_clean != titulo and date_match.group(1) not in p_clean and 'Watch Live' not in p_clean:
                                         if any(cargo in p_clean for cargo in ['Chair', 'Governor', 'Vice Chair', 'President']):
                                             autor = p_clean.replace(',', '').replace(':', '').strip()
-                                            # Limpiar cargos, "Statement from Federal Reserve..." etc.
                                             autor = re.sub(r'^(?:Statement\s+(?:by|from)\s+)?(?:Federal Reserve\s+)?(?:Former\s+)?(Vice Chair for Supervision|Vice Chair|Chair|Governor|President)\s+', '', autor, flags=re.IGNORECASE)
-                                            # Limpiar la inicial intermedia (ej. " W.", " H.")
                                             autor = re.sub(r'\s+[A-Z]\.\s+', ' ', autor)
                                             break
                             
@@ -244,6 +242,87 @@ def load_data_fed(anios_num, extract_author=True):
         except: pass
         
     df = pd.DataFrame(rows).drop_duplicates(subset=['Link']) if rows else pd.DataFrame()
+    if not df.empty:
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.sort_values("Date", ascending=False)
+    return df
+
+# --- NUEVO: SCRAPER ESPECÍFICO PARA BANCO DE FRANCIA (BdF) ---
+@st.cache_data(show_spinner=False)
+def load_data_bdf(start_date_str, end_date_str, extract_author=True):
+    base_url = "https://www.banque-france.fr/en/governor-interventions"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    try: start_date = datetime.datetime.strptime(start_date_str, '%d.%m.%Y')
+    except: start_date = datetime.datetime(2000, 1, 1)
+        
+    rows = []
+    page = 0
+    
+    while True:
+        params = {'category[7052]': '7052', 'page': page}
+        try:
+            response = requests.get(base_url, headers=headers, params=params, timeout=12)
+            response.raise_for_status()
+        except: break
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        cards = soup.find_all('div', class_=lambda c: c and 'card' in c)
+        
+        items_found = 0
+        for card in cards:
+            a_tag = card.find('a', href=True, class_=lambda c: c and 'text-underline-hover' in c)
+            if not a_tag: continue
+                
+            titulo_span = a_tag.find('span', class_='title-truncation')
+            if not titulo_span: continue
+                
+            titulo_raw = titulo_span.get_text(strip=True)
+            link = "https://www.banque-france.fr" + a_tag['href'] if a_tag['href'].startswith('/') else a_tag['href']
+            
+            date_small = card.find('small', class_=lambda c: c and 'fw-semibold' in c)
+            fecha_str = date_small.get_text(strip=True) if date_small else ""
+            
+            parsed_date = None
+            if fecha_str:
+                try:
+                    fecha_clean = re.sub(r'(\d+)(st|nd|rd|th)\s+of\s+', r'\1 ', fecha_str)
+                    parsed_date = parser.parse(fecha_clean)
+                except:
+                    pass
+            
+            if not parsed_date: continue
+
+            autor = ""
+            if extract_author:
+                category_buttons = card.find_all('a', class_='thematic-pill')
+                for btn in category_buttons:
+                    btn_text = btn.get_text(strip=True)
+                    if 'Governor' in btn_text or 'Gouverneur' in btn_text:
+                        if 'Deputy' in btn_text:
+                            autor = "Deputy Governor"
+                        else:
+                            autor = "François Villeroy de Galhau" 
+                        break
+                
+                titulo_final = f"{autor}: {titulo_raw}" if autor and ":" not in titulo_raw else titulo_raw
+            else:
+                titulo_final = titulo_raw
+
+            if not any(r['Link'] == link for r in rows):
+                rows.append({"Date": parsed_date, "Title": titulo_final, "Link": link, "Organismo": "BdF (Francia)"})
+                items_found += 1
+                
+        should_break = False
+        if rows:
+            if rows[-1]['Date'] < start_date:
+                should_break = True
+                
+        if items_found == 0 or should_break: break
+        page += 1
+        time.sleep(0.3)
+
+    df = pd.DataFrame(rows)
     if not df.empty:
         df["Date"] = pd.to_datetime(df["Date"])
         df = df.sort_values("Date", ascending=False)
@@ -417,8 +496,8 @@ if modo_app == "Categorías":
 
 st.sidebar.info("Herramienta de extracción automatizada para la elaboración del boletín mensual.")
 
+# Eliminamos BdF de este diccionario porque ahora tiene su propia función
 mapeo_discursos = {
-    "BdF (Francia)": (["https://www.banque-france.fr/en/governor-interventions?category%5B7052%5D=7052"], "https://www.banque-france.fr"),
     "BM": (["https://openknowledge.worldbank.org/communities/b6a50016-276d-56d3-bbe5-891c8d18db24?spc.sf=dc.date.issued&spc.sd=DESC"], "https://openknowledge.worldbank.org"),
     "BoC (Canadá)": (["https://www.bankofcanada.ca/press/speeches/"], "https://www.bankofcanada.ca"),
     "BoE (Inglaterra)": (["https://www.bankofengland.co.uk/news/speeches"], "https://www.bankofengland.co.uk"),
@@ -480,6 +559,8 @@ if modo_app == "Boletín":
                     df_org = load_data_bde(start_date_str, end_date_str, extract_author=True)
                 elif org == "Fed (Estados Unidos)":
                     df_org = load_data_fed(anios_num, extract_author=True)
+                elif org == "BdF (Francia)":
+                    df_org = load_data_bdf(start_date_str, end_date_str, extract_author=True)
                 elif org in mapeo_discursos:
                     urls, base = mapeo_discursos[org]
                     df_org = load_data_generic(urls, base, org, extract_author=True)
@@ -577,6 +658,8 @@ elif modo_app == "Categorías":
                         df_org = load_data_bde(start_date_str, end_date_str, extract_author=debe_extraer_autor)
                     elif org == "Fed (Estados Unidos)":
                         df_org = load_data_fed(anios_num, extract_author=debe_extraer_autor)
+                    elif org == "BdF (Francia)":
+                        df_org = load_data_bdf(start_date_str, end_date_str, extract_author=debe_extraer_autor)
                     elif org in mapeo_discursos and tipo_doc == "Discursos":
                         urls, base = mapeo_discursos[org]
                         df_org = load_data_generic(urls, base, org, extract_author=debe_extraer_autor)
