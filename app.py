@@ -187,7 +187,7 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "BIS":
             default=["2026"] if "2026" in anios_str else []
         )
 
-    buscar = st.button("🔍 Buscar Discursos del BIS", type="primary")
+    buscar = st.button("🔍 Buscar", type="primary")
 
     # Lógica de ejecución
     if buscar or "bis_df_filtrado" in st.session_state:
@@ -240,5 +240,6 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "BIS":
 else:
     st.info(f"El extractor de **{tipo_doc}** para **{organismo_seleccionado}** está en construcción.")
     st.write("Próximamente podrás extraer estos documentos de forma automatizada.")
+
 
 
