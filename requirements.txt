@@ -3,3 +3,4 @@ requests
 pandas
 tabulate
 python-docx
+beautifulsoup4
