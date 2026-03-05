@@ -6,6 +6,7 @@ from io import BytesIO
 import datetime
 import docx
 from docx import Document
+from docx.shared import Pt
 
 # ==========================================
 # CONFIGURACIÓN INICIAL Y ESTILOS
@@ -76,13 +77,35 @@ def add_hyperlink(paragraph, text, url):
     new_run = docx.oxml.shared.OxmlElement('w:r')
     rPr = docx.oxml.shared.OxmlElement('w:rPr')
 
+    # Color Azul
     c = docx.oxml.shared.OxmlElement('w:color')
     c.set(docx.oxml.shared.qn('w:val'), '0000EE')
     rPr.append(c)
 
+    # Subrayado
     u = docx.oxml.shared.OxmlElement('w:u')
     u.set(docx.oxml.shared.qn('w:val'), 'single')
     rPr.append(u)
+
+    # Formato: Negrita
+    b = docx.oxml.shared.OxmlElement('w:b')
+    rPr.append(b)
+
+    # Formato: Tamaño 12 (en la librería se mide en medios puntos, por lo que 24 = 12pt)
+    sz = docx.oxml.shared.OxmlElement('w:sz')
+    sz.set(docx.oxml.shared.qn('w:val'), '24')
+    rPr.append(sz)
+    
+    # Asegurar el tamaño también para caracteres complejos
+    szCs = docx.oxml.shared.OxmlElement('w:szCs')
+    szCs.set(docx.oxml.shared.qn('w:val'), '24')
+    rPr.append(szCs)
+
+    # Formato: Fuente Calibri
+    rFonts = docx.oxml.shared.OxmlElement('w:rFonts')
+    rFonts.set(docx.oxml.shared.qn('w:ascii'), 'Calibri')
+    rFonts.set(docx.oxml.shared.qn('w:hAnsi'), 'Calibri')
+    rPr.append(rFonts)
 
     t = docx.oxml.shared.OxmlElement('w:t')
     t.text = text
@@ -97,30 +120,40 @@ def generate_word(dataframe, title="Discursos"):
     doc = Document()
     doc.add_heading(title, 0)
 
+    # Tabla sin bordes
     table = doc.add_table(rows=1, cols=2)
-    # Al no asignarle un estilo como 'Table Grid', la tabla aparecerá sin bordes
     
+    # Encabezados con formato Calibri 12 Negrita
     hdr_cells = table.rows[0].cells
-    hdr_cells[0].text = 'Date'
-    hdr_cells[1].text = 'Title'
+    for idx, header_text in enumerate(['Date', 'Title']):
+        p = hdr_cells[idx].paragraphs[0]
+        run = p.add_run(header_text)
+        run.font.name = 'Calibri'
+        run.font.size = Pt(12)
+        run.bold = True
 
+    # Llenado de datos
     for index, row in dataframe.iterrows():
         row_cells = table.add_row().cells
         
-        if pd.api.types.is_datetime64_any_dtype(row['Date']):
-            date_str = row['Date'].strftime('%Y-%m-%d')
-        else:
-            date_str = str(row['Date'])
-        row_cells[0].text = date_str
+        # Eliminar los "00:00:00" extrayendo solo los 10 primeros caracteres (YYYY-MM-DD)
+        date_str = str(row['Date'])[:10]
         
-        p = row_cells[1].paragraphs[0]
-        add_hyperlink(p, str(row['Title']), str(row['Link']))
+        # Celda 1: Fecha (Aplicamos Calibri 12 Negrita)
+        p_date = row_cells[0].paragraphs[0]
+        run_date = p_date.add_run(date_str)
+        run_date.font.name = 'Calibri'
+        run_date.font.size = Pt(12)
+        run_date.bold = True
+        
+        # Celda 2: Título (El formato se inyecta por dentro de add_hyperlink)
+        p_title = row_cells[1].paragraphs[0]
+        add_hyperlink(p_title, str(row['Title']), str(row['Link']))
 
     output = BytesIO()
     doc.save(output)
     output.seek(0)
     return output
-
 # ==========================================
 # INTERFAZ DE USUARIO (SIDEBAR Y NAVEGACIÓN)
 # ==========================================
@@ -263,4 +296,5 @@ if tipo_doc == "Discursos" and organismo_seleccionado == "BPI":
 else:
     st.info(f"El extractor de **{tipo_doc}** para **{organismo_seleccionado}** está en construcción.")
     st.write("Próximamente podrás extraer estos documentos de forma automatizada.")
+
 
