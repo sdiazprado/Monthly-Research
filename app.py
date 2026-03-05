@@ -269,7 +269,7 @@ def add_hyperlink(paragraph, text, url):
     paragraph._p.append(hyperlink)
     return hyperlink
 
-def generate_word(dataframe, title="Boletín Mensual", subtitle=""):
+def generate_word(dataframe, title="BOLETIN MENSUAL", subtitle=""):
     doc = Document()
     heading = doc.add_heading(title, 0)
     heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -563,3 +563,4 @@ elif modo_app == "Explorador de Categorías":
 
     else:
         st.info(f"El extractor de **{tipo_doc}** para **{organismo_seleccionado}** está en construcción.")
+
